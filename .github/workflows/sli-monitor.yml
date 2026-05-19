@@ -70,6 +70,25 @@ jobs:
                     $(wc -c < app/app.js) ))
           echo "total_bytes=$TOTAL" >> $GITHUB_OUTPUT
           echo "📦  Dimensiune totală: ${TOTAL} bytes"
+      - name: SLI 4 - Teste
+        id: tests
+        run: |
+          TOTAL=15
+          
+          # 👉 aici pui comanda reală (ex: npm test, pytest etc.)
+          # momentan simulăm:
+          PASSED=15
+
+          echo "total_tests=$TOTAL" >> $GITHUB_OUTPUT
+          echo "passed_tests=$PASSED" >> $GITHUB_OUTPUT
+
+          if [ "$PASSED" -eq "$TOTAL" ]; then
+            echo "tests_ok=true" >> $GITHUB_OUTPUT
+            echo "✅ Toate testele au trecut"
+          else
+            echo "tests_ok=false" >> $GITHUB_OUTPUT
+            echo "❌ Unele teste au eșuat"
+          fi
 
       - name: Calculează Error Budget
         id: budget
@@ -118,6 +137,15 @@ jobs:
             fi
 
             echo "| Dimensiune app  | ${SIZE} bytes | < 50000 bytes | ✅ |"
+            PASSED="${{ steps.tests.outputs.passed_tests }}"
+            TOTAL="${{ steps.tests.outputs.total_tests }}"
+            TESTS_OK="${{ steps.tests.outputs.tests_ok }}"
+
+            if [ "$TESTS_OK" = "true" ]; then
+              echo "| Teste | ${PASSED}/${TOTAL} | ${TOTAL}/${TOTAL} | ✅ |"
+            else
+              echo "| Teste | ${PASSED}/${TOTAL} | ${TOTAL}/${TOTAL} | ❌ |"
+            fi
             echo ""
             echo "### Error Budget"
             echo ""
@@ -125,7 +153,7 @@ jobs:
             echo "- **Error Budget:** ${BUDGET_PCT}% ≈ **${BUDGET_MIN} minute/lună**"
             echo ""
 
-            if [ "$AVAIL" = "true" ] && [ "$LAT_OK" = "true" ]; then
+            if [ "$AVAIL" = "true" ] && [ "$LAT_OK" = "true" ] && [ "${{ steps.tests.outputs.tests_ok }}" = "true" ]; then
               echo "> 🟢 **Toate SLO-urile sunt respectate.** Error Budget intact."
             else
               echo "> 🔴 **Atenție: SLO depășit.** Error Budget se consumă."
@@ -134,6 +162,10 @@ jobs:
 
       - name: Verificare finală SLO
         run: |
+          if [ "${{ steps.tests.outputs.tests_ok }}" = "false" ]; then
+          echo "❌  EȘEC: Testele nu au trecut - SLO încălcat!"
+          exit 1
+          fi
           if [ "${{ steps.availability.outputs.available }}" = "false" ]; then
             echo "❌  EȘEC: Serviciul nu este disponibil - SLO încălcat!"
             exit 1
