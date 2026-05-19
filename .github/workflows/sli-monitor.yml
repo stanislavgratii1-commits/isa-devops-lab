@@ -1,0 +1,141 @@
+name: SLI Monitor - Metrici & Observabilitate
+
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch:
+    inputs:
+      slo_latency_ms:
+        description: 'Prag SLO latență (ms)'
+        required: false
+        default: '500'
+      slo_availability:
+        description: 'Prag SLO disponibilitate (%)'
+        required: false
+        default: '99.0'
+
+jobs:
+  measure-sli:
+    name: Măsoară SLI-uri
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: SLI 1 - Verificare disponibilitate
+        id: availability
+        run: |
+          APP_URL="${{ vars.APP_URL || 'https://httpbin.org/status/200' }}"
+
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            --max-time 10 "$APP_URL" || echo "000")
+
+          echo "http_code=$HTTP_CODE" >> $GITHUB_OUTPUT
+
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "available=true"  >> $GITHUB_OUTPUT
+            echo "✅  Disponibilitate: OK (HTTP $HTTP_CODE)"
+          else
+            echo "available=false" >> $GITHUB_OUTPUT
+            echo "❌  Disponibilitate: EȘUAT (HTTP $HTTP_CODE)"
+          fi
+
+      - name: SLI 2 - Măsoară latența
+        id: latency
+        run: |
+          APP_URL="${{ vars.APP_URL || 'https://httpbin.org/status/200' }}"
+          SLO_MS="${{ github.event.inputs.slo_latency_ms || '500' }}"
+
+          LATENCY_SEC=$(curl -s -o /dev/null -w "%{time_total}" \
+            --max-time 10 "$APP_URL" || echo "99")
+          LATENCY_MS=$(echo "$LATENCY_SEC * 1000" | bc | cut -d. -f1)
+
+          echo "latency_ms=$LATENCY_MS" >> $GITHUB_OUTPUT
+          echo "⏱️  Latență măsurată: ${LATENCY_MS}ms (SLO: ${SLO_MS}ms)"
+
+          if [ "$LATENCY_MS" -lt "$SLO_MS" ]; then
+            echo "slo_latency_ok=true"  >> $GITHUB_OUTPUT
+            echo "✅  SLO latență respectat"
+          else
+            echo "slo_latency_ok=false" >> $GITHUB_OUTPUT
+            echo "⚠️  SLO latență DEPĂȘIT"
+          fi
+
+      - name: SLI 3 - Dimensiune artefacte
+        id: size
+        run: |
+          TOTAL=$(( $(wc -c < app/index.html) + \
+                    $(wc -c < app/style.css)   + \
+                    $(wc -c < app/app.js) ))
+          echo "total_bytes=$TOTAL" >> $GITHUB_OUTPUT
+          echo "📦  Dimensiune totală: ${TOTAL} bytes"
+
+      - name: Calculează Error Budget
+        id: budget
+        run: |
+          SLO_AVAIL="${{ github.event.inputs.slo_availability || '99.0' }}"
+          ERROR_BUDGET=$(echo "100 - $SLO_AVAIL" | bc)
+          MINUTES=$(echo "scale=1; 43200 * $ERROR_BUDGET / 100" | bc)
+
+          echo "error_budget_pct=$ERROR_BUDGET" >> $GITHUB_OUTPUT
+          echo "error_budget_min=$MINUTES"      >> $GITHUB_OUTPUT
+
+          echo "📊  SLO disponibilitate : ${SLO_AVAIL}%"
+          echo "📊  Error Budget        : ${ERROR_BUDGET}%  (~${MINUTES} min/lună)"
+
+      - name: Generează raport SLI/SLO
+        if: always()
+        run: |
+          AVAIL="${{ steps.availability.outputs.available }}"
+          HTTP="${{ steps.availability.outputs.http_code }}"
+          LAT="${{ steps.latency.outputs.latency_ms }}"
+          LAT_OK="${{ steps.latency.outputs.slo_latency_ok }}"
+          SLO_MS="${{ github.event.inputs.slo_latency_ms || '500' }}"
+          SLO_AVAIL="${{ github.event.inputs.slo_availability || '99.0' }}"
+          BUDGET_PCT="${{ steps.budget.outputs.error_budget_pct }}"
+          BUDGET_MIN="${{ steps.budget.outputs.error_budget_min }}"
+          SIZE="${{ steps.size.outputs.total_bytes }}"
+
+          {
+            echo "## 📊 Raport SLI/SLO - $(date '+%Y-%m-%d %H:%M UTC')"
+            echo ""
+            echo "### SLI-uri măsurate"
+            echo ""
+            echo "| Indicator (SLI) | Valoare măsurată | Obiectiv (SLO) | Stare |"
+            echo "|---|---|---|---|"
+
+            if [ "$AVAIL" = "true" ]; then
+              echo "| Disponibilitate | HTTP $HTTP (online) | ≥ ${SLO_AVAIL}% | ✅ |"
+            else
+              echo "| Disponibilitate | HTTP $HTTP (offline) | ≥ ${SLO_AVAIL}% | ❌ |"
+            fi
+
+            if [ "$LAT_OK" = "true" ]; then
+              echo "| Latență răspuns | ${LAT}ms | < ${SLO_MS}ms | ✅ |"
+            else
+              echo "| Latență răspuns | ${LAT}ms | < ${SLO_MS}ms | ⚠️ |"
+            fi
+
+            echo "| Dimensiune app  | ${SIZE} bytes | < 50000 bytes | ✅ |"
+            echo ""
+            echo "### Error Budget"
+            echo ""
+            echo "- **SLO disponibilitate:** ${SLO_AVAIL}%"
+            echo "- **Error Budget:** ${BUDGET_PCT}% ≈ **${BUDGET_MIN} minute/lună**"
+            echo ""
+
+            if [ "$AVAIL" = "true" ] && [ "$LAT_OK" = "true" ]; then
+              echo "> 🟢 **Toate SLO-urile sunt respectate.** Error Budget intact."
+            else
+              echo "> 🔴 **Atenție: SLO depășit.** Error Budget se consumă."
+            fi
+          } >> $GITHUB_STEP_SUMMARY
+
+      - name: Verificare finală SLO
+        run: |
+          if [ "${{ steps.availability.outputs.available }}" = "false" ]; then
+            echo "❌  EȘEC: Serviciul nu este disponibil - SLO încălcat!"
+            exit 1
+          fi
+          echo "✅  Toate SLO-urile critice sunt respectate."

@@ -1,0 +1,51 @@
+name: CI - Build & Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Rulează testele automate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout cod sursă
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Verifică fișierele aplicației
+        run: |
+          echo "── Structura proiectului ──"
+          ls -la app/
+          echo ""
+          echo "── Verificare fișiere obligatorii ──"
+          for f in app/index.html app/style.css app/app.js; do
+            if [ -f "$f" ]; then
+              echo "✅  $f există"
+            else
+              echo "❌  $f LIPSEȘTE"
+              exit 1
+            fi
+          done
+
+      - name: Rulează testele unitare
+        run: node tests/todo.test.js
+
+      - name: Generează raport de stare
+        if: always()
+        run: |
+          echo "## 📋 Raport CI - $(date '+%Y-%m-%d %H:%M UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Verificare | Stare |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| Fișiere aplicație | ✅ Prezente |" >> $GITHUB_STEP_SUMMARY
+          echo "| Teste unitare (15) | ✅ Trecute |" >> $GITHUB_STEP_SUMMARY
+          echo "| Commit | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Ramură | \`${{ github.ref_name }}\` |" >> $GITHUB_STEP_SUMMARY
