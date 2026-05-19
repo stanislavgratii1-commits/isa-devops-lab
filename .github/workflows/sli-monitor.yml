@@ -77,7 +77,7 @@ jobs:
           
           # 👉 aici pui comanda reală (ex: npm test, pytest etc.)
           # momentan simulăm:
-          PASSED=15
+          PASSED=5
 
           echo "total_tests=$TOTAL" >> $GITHUB_OUTPUT
           echo "passed_tests=$PASSED" >> $GITHUB_OUTPUT
