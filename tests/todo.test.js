@@ -163,6 +163,35 @@ test('numără corect sarcinile active', () => {
   assertEqual(TodoApp.activeCount, 2);
 });
 
+// ── Exercițiu 1: Teste cazuri limită ──────────────────────────────────────
+console.log('\ncazuri limită');
+
+test('text cu caractere speciale (<script>) este acceptat ca text simplu', () => {
+  const todo = TodoApp.addTodo('<script>alert("xss")</script>');
+  assert(todo !== null, 'Ar trebui să accepte caractere speciale');
+  assertEqual(todo.text, '<script>alert("xss")</script>');
+  assertEqual(todo.completed, false);
+});
+
+test('adăugarea a 100 de sarcini consecutive', () => {
+  for (let i = 1; i <= 100; i++) {
+    TodoApp.addTodo(`Sarcina ${i}`);
+  }
+  assertEqual(TodoApp.getFiltered().length, 100);
+  assertEqual(TodoApp.getFiltered()[99].text, 'Sarcina 100');
+});
+
+test('ștergerea unui element din mijlocul listei', () => {
+  const a = TodoApp.addTodo('Prima');
+  const b = TodoApp.addTodo('Mijloc');
+  const c = TodoApp.addTodo('Ultima');
+  TodoApp.deleteTodo(b.id);
+  const items = TodoApp.getFiltered();
+  assertEqual(items.length, 2);
+  assertEqual(items[0].id, a.id);
+  assertEqual(items[1].id, c.id);
+});
+
 // ── Raport final ───────────────────────────────────────────────────────────
 console.log(`\n${'─'.repeat(40)}`);
 console.log(`Total: ${passed + failed} teste | ✅ ${passed} trecute | ❌ ${failed} eșuate`);
